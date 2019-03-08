@@ -39,13 +39,14 @@ import Effect.Aff (Aff, runAff)
 import Effect.Aff.Class (class MonadAff)
 import Effect.Class (class MonadEffect)
 import Effect.Console (log)
-import Effect.Exception (Error, catchException, message)
-import Effect.Ref as Ref
+import Effect.Exception (message)
 import Foreign (renderForeignError)
 import Foreign.Object as Object
+import Node.Buffer (Buffer)
+import Node.Buffer as Buffer
 import Node.Encoding (Encoding(..))
-import Node.HTTP (ListenOptions, Request, Response, createServer, listen, requestAsStream, requestMethod, requestURL, responseAsStream, setHeader, setStatusCode, setStatusMessage)
-import Node.Stream (end, onDataString, onEnd, onError, writeString)
+import Node.HTTP (ListenOptions, Request, Response, createServer, listen, requestMethod, requestURL, responseAsStream, setHeader, setStatusCode, setStatusMessage)
+import Node.Stream (end, writeString)
 import Node.URL (parse)
 import Prim.Row (class Cons)
 import QuickServe.PathDecoder (class PathDecoder, decodePath)
@@ -213,29 +214,17 @@ instance servableRequestBody
     :: (IsRequest request, Servable service)
     => Servable (RequestBody request -> service) where
   serveWith read req res path = Just $ void do
-    buffer <- Ref.new ""
-
-    let inputStream = requestAsStream req
-        outputStream = responseAsStream res
-
-        handleData str = (flip Ref.modify_) buffer (_ <> str)
-
-        handleError :: Error -> Effect Unit
-        handleError = sendError res 500 "Internal server error" <<< message
-
-        handleEnd = do
-          body <- Ref.read buffer
-          case decodeRequest body of
-            Left err ->
-              sendError res 400 "Bad Request" err
-            Right request ->
-              case serveWith (read (RequestBody request)) req res path of
-                Nothing -> badRoute res
-                Just eff -> eff
-    catchException handleError do
-      onError inputStream handleError
-      onDataString inputStream UTF8 handleData
-      onEnd inputStream handleEnd
+    str <- Buffer.toString UTF8 rawBody
+    case decodeRequest str of
+      Left err ->
+        sendError res 400 "Bad Request" err
+      Right request ->
+        case serveWith (read (RequestBody request)) req res path of
+          Nothing -> badRoute res
+          Just eff -> eff
+    where
+      rawBody :: Buffer
+      rawBody = (unsafeCoerce req).rawBody
 
 newtype Query a = Query a
 
