@@ -40,6 +40,9 @@ main = do
       echo2 :: Capture -> GET String
       echo2 (Capture message) = pure message
 
+      echo2' :: POST String
+      echo2' = pure "echo2"
+
       hello :: Query { param :: Int } -> GET String
       hello (Query { param }) = pure "Hello, World!"
-    in { echo1, echo2, hello }
+    in { echo1, echo2, echo2', hello }

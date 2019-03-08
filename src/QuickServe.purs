@@ -24,6 +24,7 @@ module QuickServe
 import Prelude
 
 import Control.Comonad (extract)
+import Control.Alt ((<|>))
 import Data.Bifunctor (bimap)
 import Data.Either (Either(..), either)
 import Data.List (List(..), fromFoldable, (:))
@@ -51,6 +52,7 @@ import Record (get)
 import Simple.JSON (class ReadForeign, class WriteForeign, readJSON, writeJSON)
 import Type.Proxy (Proxy(..))
 import Type.Row (class RowToList, Cons, Nil, RLProxy(..), kind RowList)
+import Type.Symbol (class Remove)
 import Unsafe.Coerce (unsafeCoerce)
 import Web.Query (class QueryDecodeFields, DecodeError(..), QueryParams(..), decodeQueryR)
 
@@ -316,10 +318,16 @@ class ServableList (l :: RowList) (r :: # Type) | l -> r where
 instance servableListNil :: ServableList Nil () where
   serveListWith _ _ _ _ _ = Nothing
 
-instance servableListCons
-  :: (IsSymbol route, Servable s, ServableList l r1, Cons route s r1 r)
-  => ServableList (Cons route s l) r where
+instance servableListCons ::
+  ( IsSymbol route
+  , IsSymbol out
+  , Remove "'" route out
+  , Servable s
+  , ServableList l r1
+  , Cons route s r1 r
+  ) => ServableList (Cons route s l) r where
   serveListWith _ rec req res (actual : xs)
-    | actual == reflectSymbol (SProxy :: SProxy route)
-    = serveWith (get (SProxy :: SProxy route) rec :: s) req res xs
+    | actual == reflectSymbol (SProxy :: SProxy out)
+    = serveWith (get (SProxy :: SProxy route) rec :: s) req res xs <|>
+      serveListWith (RLProxy :: RLProxy l) (unsafeCoerce rec) req res (actual : xs)
   serveListWith _ rec req res xs = serveListWith (RLProxy :: RLProxy l) (unsafeCoerce rec) req res xs

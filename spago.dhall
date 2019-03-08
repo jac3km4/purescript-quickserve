@@ -8,6 +8,7 @@
     , "record"
     , "simple-json"
     , "query"
+    , "psci-support"
     ]
 , packages =
     ./packages.dhall
