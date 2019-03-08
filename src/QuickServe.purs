@@ -14,7 +14,9 @@ module QuickServe
   , PUT
   , RequestBody(..)
   , Capture(..)
+  , Query(..)
   , quickServe
+  , quickServe'
   , class ServableList
   , serveListWith
   ) where
@@ -22,15 +24,15 @@ module QuickServe
 import Prelude
 
 import Control.Comonad (extract)
-import Control.Monad.Except (runExcept)
 import Data.Bifunctor (bimap)
 import Data.Either (Either(..), either)
 import Data.List (List(..), fromFoldable, (:))
-import Data.Maybe (Maybe(Nothing, Just), maybe)
+import Data.Maybe (Maybe(..), maybe)
 import Data.Newtype (class Newtype, unwrap, wrap)
 import Data.Nullable (toMaybe)
-import Data.String (split)
+import Data.String (Pattern(..), drop, indexOf, split, splitAt)
 import Data.Symbol (class IsSymbol, SProxy(..), reflectSymbol)
+import Data.Tuple (Tuple(..))
 import Effect (Effect)
 import Effect.Aff (Aff, runAff)
 import Effect.Aff.Class (class MonadAff)
@@ -39,17 +41,18 @@ import Effect.Console (log)
 import Effect.Exception (Error, catchException, message)
 import Effect.Ref as Ref
 import Foreign (renderForeignError)
-import Foreign.Class (class Decode, class Encode)
-import Foreign.Generic (decodeJSON, encodeJSON)
+import Foreign.Object as Object
 import Node.Encoding (Encoding(..))
 import Node.HTTP (ListenOptions, Request, Response, createServer, listen, requestAsStream, requestMethod, requestURL, responseAsStream, setHeader, setStatusCode, setStatusMessage)
 import Node.Stream (end, onDataString, onEnd, onError, writeString)
 import Node.URL (parse)
 import Prim.Row (class Cons)
 import Record (get)
+import Simple.JSON (class ReadForeign, class WriteForeign, readJSON, writeJSON)
 import Type.Proxy (Proxy(..))
 import Type.Row (class RowToList, Cons, Nil, RLProxy(..), kind RowList)
 import Unsafe.Coerce (unsafeCoerce)
+import Web.Query (class QueryDecodeFields, DecodeError(..), QueryParams(..), decodeQueryR)
 
 -- | A type class for types of values which define
 -- | servers.
@@ -88,17 +91,26 @@ quickServe
   -> server
   -> Effect Unit
 quickServe opts serve = do
-  server <- createServer \req res -> do
-    let url = parse (requestURL req)
-        path = maybe mempty toParts (toMaybe (url.path))
-        toParts = dropEmpty <<< fromFoldable <<< split (wrap "/")
-        dropEmpty ("" : xs) = dropEmpty xs
-        dropEmpty xs = xs
-    log (requestMethod req <> " " <> show (url.path))
-    case serveWith serve req res path of
-      Nothing -> badRoute res
-      Just s -> s
+  server <- createServer $ quickServe' serve
   listen server opts (log ("Listening on port " <> show (_.port opts)))
+
+quickServe'
+  :: forall server
+   . Servable server
+  => server
+  -> Request
+  -> Response
+  -> Effect Unit
+quickServe' serve req res = do
+  let url = parse (requestURL req)
+      path = maybe mempty toParts (toMaybe (url.pathname))
+      toParts = dropEmpty <<< fromFoldable <<< split (wrap "/")
+      dropEmpty ("" : xs) = dropEmpty xs
+      dropEmpty xs = xs
+  log (requestMethod req <> " " <> show (url.path))
+  case serveWith serve req res path of
+    Nothing -> badRoute res
+    Just s -> s
 
 -- | A type class for response data.
 class IsResponse response where
@@ -124,18 +136,17 @@ newtype JSON a = JSON a
 
 derive instance newtypeJSON :: Newtype (JSON a) _
 
-instance isResponseJSON :: Encode a => IsResponse (JSON a) where
+instance isResponseJSON :: WriteForeign a => IsResponse (JSON a) where
   encodeResponse =
     encodeResponse
-    <<< encodeJSON
+    <<< writeJSON
     <<< unwrap
   responseType _ = "application/json"
 
-instance isRequestJSON :: Decode a => IsRequest (JSON a) where
+instance isRequestJSON :: ReadForeign a => IsRequest (JSON a) where
   decodeRequest =
     bimap (renderForeignError <<< extract) JSON
-    <<< runExcept
-    <<< decodeJSON
+    <<< readJSON
     <=< decodeRequest
   requestType _ = "application/json"
 
@@ -223,6 +234,35 @@ instance servableRequestBody
       onDataString inputStream UTF8 handleData
       onEnd inputStream handleEnd
 
+newtype Query a = Query a
+
+derive instance newtypeQuery :: Newtype (Query a) _
+
+instance servableQuery
+    :: ( RowToList fields fieldList
+       , QueryDecodeFields fieldList () fields
+       , Servable service)
+    => Servable (Query (Record fields) -> service) where
+  serveWith read req res path =
+    parseQueryParams >>= decodeQueryR >>> handleResult
+    where
+      parseQueryParams = do
+        let uri = requestURL req
+        idx <- indexOf (Pattern "?") uri
+        let { after } = splitAt (idx + 1) uri
+        let params = parseParam <$> split (Pattern "&") after
+        pure $ QueryParams $ Object.fromFoldableWith (<>) params
+      parseParam str =
+        case indexOf (Pattern "=") str of
+          Just idx ->
+            let { before, after } = splitAt idx str
+            in Tuple before [ drop 1 after ]
+          Nothing -> Tuple str []
+      handleResult (Right params) =
+        serveWith (read (Query params)) req res path
+      handleResult (Left (DecodeError error)) =
+        Just $ sendError res 400 "Bad Request" error
+
 -- | `Capture` can be used to capture a part of the route.
 -- |
 -- | Use a function type with a function
@@ -259,7 +299,7 @@ sendError res code msg body = do
   end outputStream (pure unit)
 
 badRoute :: Response -> Effect Unit
-badRoute res = sendError res 400 "Bad Request" "No such route"
+badRoute res = sendError res 404 "Not found" "No such route"
 
 instance servableRecord :: (RowToList r l, ServableList l r) => Servable (Record r) where
   serveWith r = serveListWith (RLProxy :: RLProxy l) r

@@ -1,28 +1,17 @@
 module Test.Main where
 
-import Prelude
-import Data.Generic.Rep (class Generic)
 import Data.Maybe (Maybe(..))
 import Effect (Effect)
 import Effect.Class (liftEffect)
 import Effect.Console (log)
-import Foreign.Class (class Decode, class Encode)
-import Foreign.Generic (defaultOptions, genericDecode, genericEncode)
-import Foreign.Generic.Types (Options)
-import QuickServe (Capture(..), GET, JSON(..), POST, RequestBody(..), quickServe)
+import Prelude (Unit, discard, pure, ($))
+import QuickServe (Capture(..), GET, JSON(..), POST, Query(..), RequestBody(..), quickServe)
+import Simple.JSON (class ReadForeign, class WriteForeign)
 
 newtype Message = Message { message :: String }
 
-derive instance genericMessage :: Generic Message _
-
-jsonOpts :: Options
-jsonOpts = defaultOptions { unwrapSingleConstructors = true }
-
-instance decodeMessage :: Decode Message where
-  decode = genericDecode jsonOpts
-
-instance encodeMessage :: Encode Message where
-  encode = genericEncode jsonOpts
+derive newtype instance readMessage :: ReadForeign Message
+derive newtype instance writeMessage :: WriteForeign Message
 
 -- | This will serve three endpoints:
 -- |
@@ -51,6 +40,6 @@ main = do
       echo2 :: Capture -> GET String
       echo2 (Capture message) = pure message
 
-      hello :: GET String
-      hello = pure "Hello, World!"
+      hello :: Query { param :: Int } -> GET String
+      hello (Query { param }) = pure "Hello, World!"
     in { echo1, echo2, hello }
