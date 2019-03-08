@@ -23,8 +23,8 @@ module QuickServe
 
 import Prelude
 
-import Control.Comonad (extract)
 import Control.Alt ((<|>))
+import Control.Comonad (extract)
 import Data.Bifunctor (bimap)
 import Data.Either (Either(..), either)
 import Data.List (List(..), fromFoldable, (:))
@@ -48,6 +48,7 @@ import Node.HTTP (ListenOptions, Request, Response, createServer, listen, reques
 import Node.Stream (end, onDataString, onEnd, onError, writeString)
 import Node.URL (parse)
 import Prim.Row (class Cons)
+import QuickServe.PathDecoder (class PathDecoder, decodePath)
 import Record (get)
 import Simple.JSON (class ReadForeign, class WriteForeign, readJSON, writeJSON)
 import Type.Proxy (Proxy(..))
@@ -275,15 +276,16 @@ instance servableQuery
 -- |   echo' :: Capture -> GET String
 -- |   echo' (Capture s) = pure s
 -- | ```
-newtype Capture = Capture String
+newtype Capture a = Capture a
 
-derive instance newtypeCapture :: Newtype Capture _
+derive instance newtypeCapture :: Newtype (Capture a) _
 
 instance servableCapture
-    :: Servable service
-    => Servable (Capture -> service) where
-  serveWith read req res (part : path) =
-    serveWith (read (Capture part)) req res path
+    :: (Servable service, PathDecoder a)
+    => Servable (Capture a -> service) where
+  serveWith read req res (part : path) = do
+    it <- decodePath part
+    serveWith (read (Capture it)) req res path
   serveWith _ _ _ _ = Nothing
 
 sendError

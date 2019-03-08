@@ -4,7 +4,7 @@ import Data.Maybe (Maybe(..))
 import Effect (Effect)
 import Effect.Class (liftEffect)
 import Effect.Console (log)
-import Prelude (Unit, discard, pure, ($))
+import Prelude (Unit, discard, pure, show, ($))
 import QuickServe (Capture(..), GET, JSON(..), POST, Query(..), RequestBody(..), quickServe)
 import Simple.JSON (class ReadForeign, class WriteForeign)
 
@@ -37,8 +37,8 @@ main = do
         liftEffect (log message)
         pure (JSON (Message { message }))
 
-      echo2 :: Capture -> GET String
-      echo2 (Capture message) = pure message
+      echo2 :: Capture Int -> GET String
+      echo2 (Capture message) = pure $ show message
 
       echo2' :: POST String
       echo2' = pure "echo2"
