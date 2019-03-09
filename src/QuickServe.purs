@@ -185,25 +185,25 @@ type PUT r = Method "PUT" (HttpResponse r)
 
 newtype HttpResponse a = HttpResponse
   { status :: Int
-  , body :: a
+  , body :: Maybe a
   }
 
-withStatus :: ∀ a. Int -> a -> HttpResponse a
-withStatus status body = HttpResponse { status, body }
+withStatus :: ∀ a. Int -> HttpResponse a
+withStatus status = HttpResponse { status, body: Nothing }
 
 ok :: ∀ a. a -> HttpResponse a
-ok = withStatus 200
+ok body = HttpResponse { status: 200, body: Just body }
 
-created :: ∀ a. a -> HttpResponse a
+created :: ∀ a. HttpResponse a
 created = withStatus 201
 
-badRequest :: ∀ a. a -> HttpResponse a
+badRequest :: ∀ a. HttpResponse a
 badRequest = withStatus 400
 
-notFound :: ∀ a. a -> HttpResponse a
+notFound :: ∀ a. HttpResponse a
 notFound = withStatus 404
 
-conflict :: ∀ a. a -> HttpResponse a
+conflict :: ∀ a. HttpResponse a
 conflict = withStatus 409
 
 instance servableMethod
@@ -217,7 +217,9 @@ instance servableMethod
         handleResponse (HttpResponse {status, body}) = do
           setHeader res "Content-Type" (responseType (Proxy :: Proxy response))
           setStatusCode res status
-          _ <- writeString outputStream UTF8 (encodeResponse body) (pure unit)
+          case body of
+            Just value -> void $ writeString outputStream UTF8 (encodeResponse value) (pure unit)
+            Nothing -> pure unit
           end outputStream (pure unit)
     let actual = requestMethod req
         expected = reflectSymbol (SProxy :: SProxy method)
