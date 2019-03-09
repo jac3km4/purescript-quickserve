@@ -9,12 +9,18 @@ module QuickServe
   , requestType
   , JSON(..)
   , Method(..)
+  , HttpResponse
   , GET
   , POST
   , PUT
   , RequestBody(..)
   , Capture(..)
   , Query(..)
+  , ok
+  , created
+  , badRequest
+  , notFound
+  , conflict
   , quickServe
   , quickServe'
   , class ServableList
@@ -169,25 +175,49 @@ derive newtype instance monadEffectMethod :: MonadEffect (Method m)
 derive newtype instance monadAffMethod :: MonadAff (Method m)
 
 -- | A resource which responds to GET requests.
-type GET = Method "GET"
+type GET r = Method "GET" (HttpResponse r)
 
 -- | A resource which responds to POST requests.
-type POST = Method "POST"
+type POST r = Method "POST" (HttpResponse r)
 
 -- | A resource which responds to PUT requests.
-type PUT = Method "PUT"
+type PUT r = Method "PUT" (HttpResponse r)
+
+newtype HttpResponse a = HttpResponse
+  { status :: Int
+  , body :: a
+  }
+
+withStatus :: ∀ a. Int -> a -> HttpResponse a
+withStatus status body = HttpResponse { status, body }
+
+ok :: ∀ a. a -> HttpResponse a
+ok = withStatus 200
+
+created :: ∀ a. a -> HttpResponse a
+created = withStatus 201
+
+badRequest :: ∀ a. a -> HttpResponse a
+badRequest = withStatus 400
+
+notFound :: ∀ a. a -> HttpResponse a
+notFound = withStatus 404
+
+conflict :: ∀ a. a -> HttpResponse a
+conflict = withStatus 409
 
 instance servableMethod
     :: (IsSymbol method, IsResponse response)
-    => Servable (Method method response) where
+    => Servable (Method method (HttpResponse response)) where
   serveWith respond req res Nil = pure do
     let outputStream = responseAsStream res
 
         handleError = sendError res 500 "Internal server error" <<< message
 
-        handleResponse r = do
+        handleResponse (HttpResponse {status, body}) = do
           setHeader res "Content-Type" (responseType (Proxy :: Proxy response))
-          _ <- writeString outputStream UTF8 (encodeResponse r) (pure unit)
+          setStatusCode res status
+          _ <- writeString outputStream UTF8 (encodeResponse body) (pure unit)
           end outputStream (pure unit)
     let actual = requestMethod req
         expected = reflectSymbol (SProxy :: SProxy method)
