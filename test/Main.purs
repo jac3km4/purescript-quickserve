@@ -5,7 +5,7 @@ import Effect (Effect)
 import Effect.Class (liftEffect)
 import Effect.Console (log)
 import Prelude (Unit, discard, pure, show, ($))
-import QuickServe (Capture(..), GET, JSON(..), POST, Query(..), RequestBody(..), quickServe)
+import QuickServe (Capture(..), GET, JSON(..), POST, Query(..), RequestBody(..), notFound, ok, quickServe)
 import Simple.JSON (class ReadForeign, class WriteForeign)
 
 newtype Message = Message { message :: String }
@@ -35,14 +35,14 @@ main = do
             -> POST (JSON Message)
       echo1 (RequestBody (JSON (Message { message }))) = do
         liftEffect (log message)
-        pure (JSON (Message { message }))
+        pure $ ok (JSON (Message { message }))
 
       echo2 :: Capture Int -> GET String
-      echo2 (Capture message) = pure $ show message
+      echo2 (Capture message) = pure $ ok $ show message
 
       echo2' :: POST String
-      echo2' = pure "echo2"
+      echo2' = pure $ notFound
 
       hello :: Query { param :: Int } -> GET String
-      hello (Query { param }) = pure "Hello, World!"
+      hello (Query { param }) = pure $ ok "Hello, World!"
     in { echo1, echo2, echo2', hello }
