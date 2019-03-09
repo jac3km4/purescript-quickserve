@@ -284,8 +284,8 @@ instance servableQuery
       parseQueryParams = do
         let uri = requestURL req
         idx <- indexOf (Pattern "?") uri
-        let { after } = splitAt (idx + 1) uri
-        let params = parseParam <$> split (Pattern "&") after
+        let query = drop (idx + 1) uri
+        let params = parseParam <$> split (Pattern "&") query
         pure $ QueryParams $ Object.fromFoldableWith (<>) params
       parseParam str =
         case indexOf (Pattern "=") str of
